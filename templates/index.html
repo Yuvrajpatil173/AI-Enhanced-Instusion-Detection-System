@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web Attack Prediction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #00bfff;
+      --blue-dim:   #0077aa;
+      --blue-glow:  rgba(0, 191, 255, 0.2);
+      --blue-deep:  rgba(0, 191, 255, 0.08);
+      --orange:     #ff8c00;
+      --red:        #ff3860;
+      --bg:         #020d18;
+      --surface:    rgba(4, 22, 44, 0.95);
+      --surface2:   rgba(0, 14, 32, 0.9);
+      --border:     rgba(0, 191, 255, 0.2);
+      --text:       #cce8ff;
+      --text-dim:   #4a7a99;
+      --mono:       'Orbitron', monospace;
+      --body:       'Exo 2', sans-serif;
+    }
+
+    html, body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      overflow-x: hidden;
+    }
+
+    /* ── BACKGROUND ── */
+    .bg-video {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; z-index: 0;
+      opacity: 0.08; filter: hue-rotate(200deg) saturate(0.5);
+    }
+    .bg-radial {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 60% at 50% 50%, rgba(0,100,200,0.12) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 40% at 20% 80%, rgba(0,60,140,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 30% 30% at 80% 20%, rgba(0,100,200,0.06) 0%, transparent 60%);
+    }
+    /* HUD grid lines */
+    .bg-grid {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(0,191,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,191,255,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+    /* rotating ring decorations */
+    .hud-ring {
+      position: fixed; border-radius: 50%; pointer-events: none; z-index: 1;
+      border: 1px solid rgba(0,191,255,0.07);
+    }
+    .hud-ring.r1 { width: 800px; height: 800px; top: 50%; left: 50%; transform: translate(-50%,-50%); animation: rot 40s linear infinite; }
+    .hud-ring.r2 { width: 600px; height: 600px; top: 50%; left: 50%; transform: translate(-50%,-50%); border-color: rgba(0,191,255,0.05); animation: rot 28s linear infinite reverse; }
+    .hud-ring.r1::before {
+      content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--blue); top: 0; left: 50%; transform: translateX(-50%);
+      box-shadow: 0 0 8px var(--blue);
+    }
+
+    /* ── LOADER ── */
+    #loader {
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+      transition: opacity 0.7s;
+    }
+    #loader.hide { opacity: 0; pointer-events: none; }
+    .loader-hex {
+      position: relative; width: 80px; height: 80px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .loader-hex svg { position: absolute; inset: 0; width: 100%; height: 100%; animation: rot 2s linear infinite; }
+    .loader-hex-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--blue); box-shadow: 0 0 16px var(--blue);
+      animation: pulse 1s ease-in-out infinite alternate;
+    }
+    .loader-text {
+      font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.4em;
+      color: var(--blue-dim); text-transform: uppercase;
+    }
+    .loader-bar {
+      width: 200px; height: 2px; background: rgba(0,191,255,0.15); border-radius: 2px; overflow: hidden;
+    }
+    .loader-bar-fill {
+      height: 100%; width: 0%; background: var(--blue);
+      box-shadow: 0 0 8px var(--blue);
+      animation: loadbar 1.8s ease-out forwards;
+    }
+
+    /* ── LAYOUT ── */
+    .page { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; width: 100%; padding: 40px 16px; }
+
+    /* top HUD bar */
+    .hud-bar {
+      width: min(540px, 96vw); display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 16px; margin-bottom: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      clip-path: polygon(12px 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%);
+    }
+    .hud-bar-item { font-size: 0.6rem; letter-spacing: 0.25em; color: var(--text-dim); font-family: var(--mono); }
+    .hud-bar-item.live { color: var(--blue); display: flex; align-items: center; gap: 5px; }
+    .live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s ease-in-out infinite alternate; }
+
+    /* ── MAIN CARD ── */
+    .card {
+      width: min(540px, 96vw);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      position: relative; overflow: hidden;
+      clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 24px 100%, 0 calc(100% - 24px));
+      padding: 40px 36px 36px;
+    }
+    /* top-right cut fill */
+    .card::after {
+      content: '';
+      position: absolute; top: 0; right: 0;
+      width: 34px; height: 34px;
+      background: linear-gradient(225deg, var(--blue-dim) 0%, transparent 60%);
+      opacity: 0.3;
+    }
+    /* animated top border light */
+    .card-glow-line {
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue) 30%, var(--blue) 70%, transparent);
+      opacity: 0.6;
+    }
+    /* scan sweep */
+    .scanline {
+      position: absolute; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,191,255,0.4) 50%, transparent);
+      top: 0; animation: scan 5s ease-in-out infinite; pointer-events: none; z-index: 3;
+    }
+    /* corner marks */
+    .cc { position: absolute; width: 14px; height: 14px; }
+    .cc.tl { top: 2px; left: 2px; border-top: 1.5px solid var(--blue); border-left: 1.5px solid var(--blue); }
+    .cc.bl { bottom: 2px; left: 2px; border-bottom: 1.5px solid var(--blue); border-left: 1.5px solid var(--blue); }
+    .cc.br { bottom: 2px; right: 2px; border-bottom: 1.5px solid var(--blue); border-right: 1.5px solid var(--blue); }
+
+    /* ── HEADER ── */
+    .card-header { margin-bottom: 32px; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 0.58rem;
+      letter-spacing: 0.35em; color: var(--blue-dim); margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .eyebrow::before { content: '//'; color: var(--blue); opacity: 0.6; }
+    h1 {
+      font-family: var(--mono); font-size: 1.6rem; font-weight: 700;
+      color: #fff; letter-spacing: 0.06em; line-height: 1.15;
+    }
+    h1 em { color: var(--blue); font-style: normal; }
+    .subtitle { font-size: 0.75rem; color: var(--text-dim); margin-top: 8px; letter-spacing: 0.1em; }
+
+    /* status row */
+    .status-row {
+      display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap;
+    }
+    .status-pill {
+      font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.2em;
+      color: var(--blue-dim); border: 1px solid var(--border);
+      padding: 4px 10px;
+      clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+      background: var(--blue-deep);
+    }
+    .status-pill.active { color: var(--blue); border-color: rgba(0,191,255,0.4); }
+
+    /* ── DIVIDER ── */
+    .divider {
+      display: flex; align-items: center; gap: 10px; margin: 20px 0 24px;
+    }
+    .divider-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+    .divider-label { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.3em; color: var(--text-dim); }
+
+    /* ── FORM ── */
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 480px) { .fields { grid-template-columns: 1fr; } }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label {
+      font-family: var(--mono); font-size: 0.55rem;
+      letter-spacing: 0.25em; color: var(--text-dim);
+      text-transform: uppercase; display: flex; align-items: center; gap: 6px;
+    }
+    .field label .idx { color: var(--blue); opacity: 0.8; font-size: 0.5rem; }
+    .field input {
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 10px 12px; color: var(--text);
+      font-family: var(--mono); font-size: 0.85rem;
+      outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+      clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+      -moz-appearance: textfield;
+    }
+    .field input::-webkit-outer-spin-button,
+    .field input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .field input::placeholder { color: #1a3a55; }
+    .field input:focus {
+      border-color: rgba(0,191,255,0.5);
+      box-shadow: 0 0 0 3px rgba(0,191,255,0.07), inset 0 0 12px rgba(0,191,255,0.04);
+    }
+
+    /* ── BUTTON ── */
+    .btn-wrap { margin-top: 28px; position: relative; }
+    .btn {
+      width: 100%; padding: 14px;
+      background: rgba(0,191,255,0.06);
+      border: 1px solid rgba(0,191,255,0.45);
+      color: var(--blue);
+      font-family: var(--mono); font-size: 0.8rem;
+      font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
+      cursor: pointer; position: relative; overflow: hidden;
+      clip-path: polygon(16px 0%, 100% 0%, calc(100% - 16px) 100%, 0% 100%);
+      transition: background 0.3s, color 0.3s, box-shadow 0.3s;
+    }
+    .btn::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(0,191,255,0.12) 50%, transparent);
+      transform: translateX(-100%);
+      transition: transform 0.6s;
+    }
+    .btn:hover {
+      background: rgba(0,191,255,0.15);
+      box-shadow: 0 0 30px rgba(0,191,255,0.2), inset 0 0 20px rgba(0,191,255,0.05);
+    }
+    .btn:hover::before { transform: translateX(100%); }
+    .btn span { position: relative; z-index: 1; }
+
+    /* corner accents on button */
+    .btn-wrap::before, .btn-wrap::after {
+      content: ''; position: absolute; bottom: 0;
+      width: 8px; height: 8px;
+    }
+    .btn-wrap::before { left: 16px; border-bottom: 1.5px solid var(--blue); border-left: 1.5px solid var(--blue); }
+    .btn-wrap::after  { right: 16px; border-bottom: 1.5px solid var(--blue); border-right: 1.5px solid var(--blue); }
+
+    /* ── BOTTOM HUD BAR ── */
+    .hud-bar-bottom {
+      width: min(540px, 96vw); margin-top: 12px;
+      display: flex; justify-content: flex-end; gap: 20px;
+      padding: 6px 12px;
+    }
+    .hud-bar-bottom span { font-family: var(--mono); font-size: 0.5rem; letter-spacing: 0.2em; color: var(--text-dim); }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 8000;
+      background: rgba(2, 10, 22, 0.9);
+      backdrop-filter: blur(8px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      width: min(480px, 94vw);
+      background: rgba(4, 20, 42, 0.98);
+      border: 1px solid rgba(0,191,255,0.3);
+      clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 28px 100%, 0 calc(100% - 28px));
+      padding: 44px 36px 36px;
+      position: relative; overflow: hidden;
+      transform: scale(0.9) translateY(20px); opacity: 0;
+      transition: transform 0.4s cubic-bezier(.34,1.36,.64,1), opacity 0.3s;
+    }
+    .modal-overlay.open .modal-box { transform: scale(1) translateY(0); opacity: 1; }
+    .modal-box .cc.tl { top: 2px; left: 2px; }
+    .modal-box .cc.bl { bottom: 2px; left: 2px; }
+    .modal-box .cc.br { bottom: 2px; right: 2px; }
+    .modal-glow-line {
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue) 30%, var(--blue) 70%, transparent);
+      opacity: 0.7;
+    }
+
+    .modal-close {
+      position: absolute; top: 14px; right: 18px;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-dim); font-family: var(--mono);
+      font-size: 0.6rem; letter-spacing: 0.2em;
+      transition: color 0.2s; text-transform: uppercase;
+    }
+    .modal-close:hover { color: var(--red); }
+
+    .modal-eyebrow {
+      font-family: var(--mono); font-size: 0.55rem;
+      letter-spacing: 0.35em; color: var(--blue-dim); margin-bottom: 6px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .modal-eyebrow::before { content: '//'; color: var(--blue); opacity: 0.5; }
+    .modal-title {
+      font-family: var(--mono); font-size: 1.1rem; font-weight: 700;
+      color: #fff; letter-spacing: 0.08em; margin-bottom: 28px;
+    }
+
+    /* input summary grid */
+    .summary-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+      background: var(--border); margin-bottom: 24px;
+      border: 1px solid var(--border);
+    }
+    .summary-cell {
+      background: var(--surface2); padding: 12px 14px;
+    }
+    .summary-key {
+      font-family: var(--mono); font-size: 0.52rem;
+      letter-spacing: 0.2em; color: var(--text-dim); margin-bottom: 4px;
+    }
+    .summary-val {
+      font-family: var(--mono); font-size: 0.9rem; color: var(--text);
+    }
+
+    /* result */
+    .result-panel {
+      display: flex; align-items: center; gap: 16px;
+      padding: 18px 20px;
+      border: 1px solid rgba(0,191,255,0.2);
+      background: rgba(0,191,255,0.04);
+      clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%);
+    }
+    .result-panel.danger {
+      border-color: rgba(255,56,96,0.3); background: rgba(255,56,96,0.06);
+    }
+    .result-icon-wrap {
+      width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+      border: 1px solid rgba(0,191,255,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem;
+    }
+    .result-panel.danger .result-icon-wrap { border-color: rgba(255,56,96,0.4); }
+    .result-label {
+      font-family: var(--mono); font-size: 0.52rem;
+      letter-spacing: 0.25em; color: var(--text-dim); margin-bottom: 4px;
+    }
+    .result-value {
+      font-family: var(--mono); font-size: 1.3rem; font-weight: 700;
+      color: var(--blue);
+    }
+    .result-panel.danger .result-value { color: var(--red); }
+
+    /* ── KEYFRAMES ── */
+    @keyframes rot { to { transform: translate(-50%,-50%) rotate(360deg); } }
+    @keyframes pulse { from { opacity: 0.4; transform: scale(0.9); } to { opacity: 1; transform: scale(1.1); } }
+    @keyframes scan { 0% { top: 0%; opacity: 0; } 5% { opacity: 0.5; } 95% { opacity: 0.5; } 100% { top: 100%; opacity: 0; } }
+    @keyframes loadbar { to { width: 100%; } }
+  </style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-hex">
+    <svg viewBox="0 0 80 80" fill="none">
+      <polygon points="40,4 74,22 74,58 40,76 6,58 6,22" stroke="rgba(0,191,255,0.3)" stroke-width="1.5"/>
+      <polygon points="40,14 64,27 64,53 40,66 16,53 16,27" stroke="rgba(0,191,255,0.5)" stroke-width="1"/>
+    </svg>
+    <div class="loader-hex-dot"></div>
+  </div>
+  <div class="loader-text">INITIALIZING SYSTEM</div>
+  <div class="loader-bar"><div class="loader-bar-fill"></div></div>
+</div>
+
+<!-- BACKGROUND -->
+<video class="bg-video" autoplay muted loop playsinline onerror="this.style.display='none'">
+  <source src="{{ url_for('static', filename='assets/i-am-free-anonymous.960x540.mp4') }}" type="video/mp4" />
+</video>
+<div class="bg-radial"></div>
+<div class="bg-grid"></div>
+<div class="hud-ring r1"></div>
+<div class="hud-ring r2"></div>
+
+<!-- PAGE -->
+<div class="page">
+
+  <!-- TOP HUD BAR -->
+  <div class="hud-bar">
+    <span class="hud-bar-item">STARK AI // THREAT ANALYSIS</span>
+    <span class="hud-bar-item live"><span class="live-dot"></span> ONLINE</span>
+    <span class="hud-bar-item" id="hudClock">--:--:--</span>
+  </div>
+
+  <!-- MAIN CARD -->
+  <div class="card">
+    <div class="cc tl"></div>
+    <div class="cc bl"></div>
+    <div class="cc br"></div>
+    <div class="card-glow-line"></div>
+    <div class="scanline"></div>
+
+    <div class="card-header">
+      <div class="eyebrow">NETWORK FLOW ANALYSIS MODULE</div>
+      <h1>Web Attack<br><em>Prediction</em></h1>
+      <div class="subtitle">INPUT PARAMETERS TO RUN THREAT DETECTION</div>
+      <div class="status-row">
+        <span class="status-pill active">ML ENGINE: ACTIVE</span>
+        <span class="status-pill active">FIREWALL: ARMED</span>
+        <span class="status-pill">v2.4.1</span>
+      </div>
+    </div>
+
+    <div class="divider">
+      <div class="divider-line"></div>
+      <div class="divider-label">INPUT PARAMETERS</div>
+      <div class="divider-line" style="background:linear-gradient(270deg,var(--border),transparent)"></div>
+    </div>
+
+    <form method="POST" action="/predict" autocomplete="off" id="predictForm">
+      <div class="fields">
+        <div class="field">
+          <label><span class="idx">P-01</span> Flow Duration</label>
+          <input type="number" step="any" name="flow_duration" required placeholder="0.000" />
+        </div>
+        <div class="field">
+          <label><span class="idx">P-02</span> Total Fwd Packets</label>
+          <input type="number" step="any" name="total_fwd_packets" required placeholder="0" />
+        </div>
+        <div class="field">
+          <label><span class="idx">P-03</span> Total Bwd Packets</label>
+          <input type="number" step="any" name="total_backward_packets" required placeholder="0" />
+        </div>
+        <div class="field">
+          <label><span class="idx">P-04</span> Fwd Packet Length</label>
+          <input type="number" step="any" name="total_length_fwd_packets" required placeholder="0" />
+        </div>
+      </div>
+
+      <div class="btn-wrap">
+        <button type="submit" class="btn"><span>INITIATE ANALYSIS</span></button>
+      </div>
+    </form>
+  </div>
+
+  <!-- BOTTOM HUD BAR -->
+  <div class="hud-bar-bottom">
+    <span>SYS.UPTIME: OK</span>
+    <span>ENC: AES-256</span>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="predModal">
+  <div class="modal-box" id="predModalBox">
+    <div class="cc tl"></div>
+    <div class="cc bl"></div>
+    <div class="cc br"></div>
+    <div class="modal-glow-line"></div>
+    <button class="modal-close" onclick="closeModal()">[ DISMISS ]</button>
+
+    <div class="modal-eyebrow">ANALYSIS COMPLETE</div>
+    <div class="modal-title">THREAT ASSESSMENT</div>
+
+    <div class="summary-grid" id="inputSummary" style="display:none">
+      <div class="summary-cell">
+        <div class="summary-key">P-01 / FLOW DURATION</div>
+        <div class="summary-val" id="sFlowDuration">—</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-key">P-02 / TOTAL FWD PKT</div>
+        <div class="summary-val" id="sTotalFwd">—</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-key">P-03 / TOTAL BWD PKT</div>
+        <div class="summary-val" id="sTotalBwd">—</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-key">P-04 / FWD PKT LEN</div>
+        <div class="summary-val" id="sFwdLen">—</div>
+      </div>
+    </div>
+
+    <div class="result-panel" id="resultBlock">
+      <div class="result-icon-wrap" id="resultIcon">⚑</div>
+      <div>
+        <div class="result-label">CLASSIFIED AS</div>
+        <div class="result-value" id="predictionValue">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Clock
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('hudClock').textContent =
+      now.toTimeString().split(' ')[0];
+  }
+  updateClock(); setInterval(updateClock, 1000);
+
+  // Loader
+  window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      const l = document.getElementById('loader');
+      l.classList.add('hide');
+      setTimeout(() => l.style.display = 'none', 800);
+    }, 2200);
+  });
+
+  // Form submit
+  document.getElementById('predictForm').addEventListener('submit', e => {
+    const data = {
+      flow_duration: e.target.flow_duration.value,
+      total_fwd_packets: e.target.total_fwd_packets.value,
+      total_backward_packets: e.target.total_backward_packets.value,
+      total_length_fwd_packets: e.target.total_length_fwd_packets.value,
+    };
+    sessionStorage.setItem('lastFormData', JSON.stringify(data));
+    const l = document.getElementById('loader');
+    l.style.display = 'flex'; l.classList.remove('hide');
+  });
+
+  // Modal
+  function openModal(prediction) {
+    const stored = sessionStorage.getItem('lastFormData');
+    let data = stored ? JSON.parse(stored) : null;
+    if (stored) sessionStorage.removeItem('lastFormData');
+
+    if (data) {
+      document.getElementById('sFlowDuration').textContent = data.flow_duration || '—';
+      document.getElementById('sTotalFwd').textContent = data.total_fwd_packets || '—';
+      document.getElementById('sTotalBwd').textContent = data.total_backward_packets || '—';
+      document.getElementById('sFwdLen').textContent = data.total_length_fwd_packets || '—';
+      document.getElementById('inputSummary').style.display = 'grid';
+    }
+
+    document.getElementById('predictionValue').textContent = prediction;
+
+    const rb = document.getElementById('resultBlock');
+    const isBenign = prediction.toLowerCase().includes('benign') || prediction.toLowerCase().includes('normal');
+    rb.className = 'result-panel' + (isBenign ? '' : ' danger');
+    document.getElementById('resultIcon').textContent = isBenign ? '✔' : '⚠';
+
+    document.getElementById('predModal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('predModal').classList.remove('open');
+  }
+
+  document.getElementById('predModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('predModal')) closeModal();
+  });
+
+  {% if prediction %}
+  setTimeout(() => openModal("{{ prediction|e }}"), 2400);
+  {% endif %}
+</script>
+</body>
+</html>
